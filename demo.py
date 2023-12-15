@@ -49,12 +49,17 @@ def main():
     img_paths = [img for end in args.file_type for img in Path(args.img_folder).glob(end)]
 
     # Apply detectrion2 to the images
-    list_det_instances = []
-    for _, img_path in enumerate(img_paths):
+    detect_results = []
+    for i, img_path in enumerate(img_paths):
+        print(img_path)
         img_cv2 = cv2.imread(str(img_path))
         # Detect humans in image
         det_out = detector(img_cv2)
-        list_det_instances.append(det_out['instances'])
+        det_instances = det_out['instances']
+        valid_idx = (det_instances.pred_classes==0) & (det_instances.scores > 0.5)
+        pred_bboxes=det_instances.pred_boxes.tensor[valid_idx].cpu().numpy()
+        pred_scores=det_instances.scores[valid_idx].cpu().numpy()
+        detect_results.append((valid_idx, pred_bboxes, pred_scores))
 
     del detector
 
@@ -78,11 +83,7 @@ def main():
     # Iterate over all images in folder
     for i, img_path in enumerate(img_paths):
         img_cv2 = cv2.imread(str(img_path))
-
-        det_instances = list_det_instances[i]
-        valid_idx = (det_instances.pred_classes==0) & (det_instances.scores > 0.5)
-        pred_bboxes=det_instances.pred_boxes.tensor[valid_idx].cpu().numpy()
-        pred_scores=det_instances.scores[valid_idx].cpu().numpy()
+        valid_idx, pred_bboxes, pred_scores = detect_results[i]
 
         # Detect human keypoints for each person
         vitposes_out = cpm.predict_pose(
