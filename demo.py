@@ -32,14 +32,7 @@ def main():
 
     args = parser.parse_args()
 
-    # Download and load checkpoints
-    download_models(CACHE_DIR_HAMER)
-    model, model_cfg = load_hamer(args.checkpoint)
-
-    # Setup HaMeR model
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    model = model.to(device)
-    model.eval()
 
     # Load detector
     from hamer.utils.utils_detectron2 import DefaultPredictor_Lazy
@@ -52,6 +45,27 @@ def main():
         detectron2_cfg.model.roi_heads.box_predictors[i].test_score_thresh = 0.25
     detector = DefaultPredictor_Lazy(detectron2_cfg)
 
+    # Get all demo images ends with .jpg or .png
+    img_paths = [img for end in args.file_type for img in Path(args.img_folder).glob(end)]
+
+    # Apply detectrion2 to the images
+    list_det_instances = []
+    for _, img_path in enumerate(img_paths):
+        img_cv2 = cv2.imread(str(img_path))
+        # Detect humans in image
+        det_out = detector(img_cv2)
+        list_det_instances.append(det_out['instances'])
+
+    del detector
+
+    # Download and load checkpoints
+    download_models(CACHE_DIR_HAMER)
+    model, model_cfg = load_hamer(args.checkpoint)
+
+    # Setup HaMeR model
+    model = model.to(device)
+    model.eval()
+
     # keypoint detector
     cpm = ViTPoseModel(device)
 
@@ -61,18 +75,11 @@ def main():
     # Make output directory if it does not exist
     os.makedirs(args.out_folder, exist_ok=True)
 
-    # Get all demo images ends with .jpg or .png
-    img_paths = [img for end in args.file_type for img in Path(args.img_folder).glob(end)]
-
     # Iterate over all images in folder
-    for img_path in img_paths:
+    for i, img_path in enumerate(img_paths):
         img_cv2 = cv2.imread(str(img_path))
 
-        # Detect humans in image
-        det_out = detector(img_cv2)
-        img = img_cv2.copy()[:, :, ::-1]
-
-        det_instances = det_out['instances']
+        det_instances = list_det_instances[i]
         valid_idx = (det_instances.pred_classes==0) & (det_instances.scores > 0.5)
         pred_bboxes=det_instances.pred_boxes.tensor[valid_idx].cpu().numpy()
         pred_scores=det_instances.scores[valid_idx].cpu().numpy()
